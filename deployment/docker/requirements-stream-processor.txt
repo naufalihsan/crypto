@@ -1,0 +1,5 @@
+# Essential dependencies for PyFlink stream processor
+apache-flink==1.20.0
+apache-flink-libraries==1.20.0
+py4j>=0.10.9.5
+cloudpickle>=2.0.0

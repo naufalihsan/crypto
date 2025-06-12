@@ -1,26 +1,158 @@
 [project]
-name = "crypto"
+name = "crypto-pipeline"
 version = "0.1.0"
-description = ""
+description = "Real-time cryptocurrency data streaming and processing pipeline"
 authors = [
-    {name = "Naufal Ihsan",email = "naufal.ihsan21@gmail.com"}
+    {name = "Naufal Ihsan", email = "naufal.ihsan21@gmail.com"}
 ]
+readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["cryptocurrency", "data-pipeline", "kafka", "flink", "postgresql", "clickhouse"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
 dependencies = [
     "apache-flink==1.20.0",
     "apache-flink-libraries==1.20.0",
-    "kafka-python==2.0.2",
-    "websockets==12.0",
-    "requests==2.31.0",
-    "jsonschema==4.0.0",
-    "py4j==0.10.9.5",
-    "cloudpickle==2.0.0",
-    "python-dateutil==2.8.0",
+    "asyncpg>=0.29.0",
+    "kafka-python>=2.0.2",
+    "websockets>=12.0",
+    "requests>=2.31.0",
+    "jsonschema>=4.0.0",
+    "py4j>=0.10.9.5",
+    "cloudpickle>=2.0.0",
+    "python-dateutil>=2.8.0",
+    "clickhouse-connect>=0.6.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
 ]
 
-[tool.poetry]
-package-mode = false
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.0.0",
+]
+monitoring = [
+    "prometheus-client>=0.17.0",
+    "structlog>=23.0.0",
+]
+analysis = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+]
+
+[project.scripts]
+crypto-producer = "pipeline.ingestion.producer:main"
+crypto-oltp-connector = "pipeline.connectors.kafka_to_psql:main"
+crypto-olap-connector = "pipeline.connectors.kafka_to_clickhouse:main"
+crypto-flink-job = "pipeline.processing.stream_processor:main"
+crypto-oltp-queries = "pipeline.services.oltp_service:main"
+
+[project.urls]
+Homepage = "https://github.com/naufalihsan/crypto-pipeline"
+Documentation = "https://github.com/naufalihsan/crypto-pipeline/docs"
+Repository = "https://github.com/naufalihsan/crypto-pipeline"
+Issues = "https://github.com/naufalihsan/crypto-pipeline/issues"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = [
+    "tests",
+]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+]
+python_classes = [
+    "Test*",
+]
+python_functions = [
+    "test_*",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

@@ -1,0 +1,51 @@
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies and Java with JDK headers for PyFlink/pemja dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-17-jdk-headless \
+    wget \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/java/openjdk \
+    && for i in /usr/lib/jvm/java-17-openjdk-*/include; do \
+        if [ -d "$i" ]; then ln -sfT "$i" /opt/java/openjdk/include; fi; \
+    done
+
+# Set JAVA_HOME dynamically and create environment script
+RUN JAVA_HOME_PATH=$(readlink -f /usr/bin/java | sed "s:bin/java::") && \
+    echo "export JAVA_HOME=$JAVA_HOME_PATH" > /etc/profile.d/java.sh && \
+    echo "export PATH=\$JAVA_HOME/bin:\$PATH" >> /etc/profile.d/java.sh && \
+    chmod +x /etc/profile.d/java.sh
+
+# Download Flink Kafka connector
+RUN mkdir -p /app/flink-jars && \
+    wget -O /app/flink-jars/flink-sql-connector-kafka-3.3.0-1.20.jar \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar
+
+# Copy and install Python dependencies with proper JAVA_HOME
+COPY deployment/docker/requirements-stream-processor.txt ./requirements.txt
+RUN . /etc/profile.d/java.sh && \
+    pip install --no-cache-dir --no-compile -r requirements.txt \
+    && rm requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+
+# Set environment variables
+ENV PYTHONPATH=/app/src \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FLINK_JARS_PATH=/app/flink-jars
+
+# Create non-root user and switch
+RUN useradd -m -u 1000 streamprocessor \
+    && chown -R streamprocessor:streamprocessor /app
+USER streamprocessor
+
+# Source Java environment and run the stream processor
+CMD ["/bin/bash", "-c", "source /etc/profile.d/java.sh && python -m pipeline.processing.stream_processor"] 
