@@ -16,4 +16,4 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 
 # Run the producer
-CMD ["python", "-m", "pipeline.ingestion.producer"]
+CMD ["python", "src/pipeline/data_ingestion/crypto_data_producer.py"]

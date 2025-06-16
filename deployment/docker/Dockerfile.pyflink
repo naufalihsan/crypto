@@ -1,0 +1,40 @@
+FROM flink:1.20.0-scala_2.12
+
+# Set working directory
+WORKDIR /opt/flink
+
+# Install Python and required dependencies
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip openjdk-11-jdk-headless wget curl && \
+    ln -s /usr/bin/python3 /usr/bin/python && \
+    # JAVA_HOME for PyFlink's JNI dependency build
+    for i in /usr/lib/jvm/java-11-openjdk-*/include; do \
+    if [ -d "$i" ]; then ln -sfT "$i" /opt/java/openjdk/include; fi; \
+    done
+
+# Download Kafka connector to lib directory
+RUN wget -O /opt/flink/lib/flink-sql-connector-kafka-3.3.0-1.20.jar \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar && \
+    chmod 644 /opt/flink/lib/flink-sql-connector-kafka-3.3.0-1.20.jar
+
+# Create jobs directory for Python scripts
+RUN mkdir -p /opt/flink/jobs /opt/flink/log && \
+    chmod -R 777 /opt/flink/jobs
+
+# Copy requirements and install them
+COPY deployment/docker/requirements-pyflink.txt /opt/flink/requirements.txt
+RUN pip3 install --no-cache-dir -r /opt/flink/requirements.txt
+
+# Copy source code to jobs directory
+COPY src/pipeline/stream_processing/flink_stream_processor.py /opt/flink/jobs/
+
+# Copy job submission script
+COPY deployment/docker/init-scripts/start-jobmanager-with-job.sh /opt/flink/bin/start-jobmanager-with-job.sh
+RUN chmod +x /opt/flink/bin/start-jobmanager-with-job.sh
+
+# Set environment variables
+ENV PYTHONPATH=/opt/flink/jobs \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYFLINK_CLIENT_EXECUTABLE=python3 \
+    FLINK_HOME=/opt/flink

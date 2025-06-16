@@ -91,6 +91,12 @@ start-olap-connector: ## Start the OLAP connector
 start-flink-job: ## Start the Flink processing job
 	python -m pipeline.processing.stream_processor
 
+start-olap-service: ## Start the OLAP service
+	python -m src.pipeline.services.olap_service
+
+test-olap-service: ## Test the OLAP service endpoints
+	python scripts/test_olap_service.py
+
 # Monitoring targets
 monitor-kafka: ## Monitor Kafka topics
 	python tools/scripts/monitor_kafka.py

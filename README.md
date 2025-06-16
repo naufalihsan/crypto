@@ -41,11 +41,13 @@ A real-time cryptocurrency data streaming and processing pipeline built with Apa
 
 ## ✨ Features
 
-- **Real-time Data Ingestion**: Live cryptocurrency data from Binance WebSocket and CoinGecko API
+- **Multi-Source Data Ingestion**: Live cryptocurrency data with automatic fallback between Binance WebSocket, Coinbase Pro, Kraken, and CoinGecko API
+- **Automatic Failover**: Seamless switching between data sources when primary sources are blocked or unavailable
 - **Stream Processing**: Apache Flink jobs for technical indicators and anomaly detection
 - **OLTP Database**: PostgreSQL for transactional data storage with optimized schema
+- **OLAP Analytics**: ClickHouse for high-performance analytical queries and aggregations
 - **Scalable Architecture**: Containerized services with Docker Compose
-- **Monitoring**: Built-in health checks and metrics collection
+- **Monitoring**: Built-in health checks and metrics collection with source status tracking
 - **Development Tools**: Pre-commit hooks, testing framework, and code quality tools
 
 ## 📋 Prerequisites
@@ -142,14 +144,30 @@ POSTGRES_DB=crypto_oltp
 POSTGRES_USER=admin
 POSTGRES_PASSWORD=admin
 
-# Data Sources
+# Data Sources Configuration
 CRYPTO_SYMBOLS=BTCUSDT,ETHUSDT,DOGEUSDT,BNBUSDT,XRPUSDT
-BINANCE_WS_URL=wss://stream.binance.com:9443/ws/
+
+# Enable/disable specific data sources (true/false)
+ENABLE_BINANCE=true      # Primary WebSocket source
+ENABLE_COINBASE=true     # Secondary WebSocket source  
+ENABLE_KRAKEN=true       # Tertiary WebSocket source
+# CoinGecko REST API is always enabled as final fallback
 
 # Application Settings
 LOG_LEVEL=INFO
 ENVIRONMENT=development
 ```
+
+### Data Source Fallback
+
+The producer automatically tries data sources in priority order:
+
+1. **Binance WebSocket** (if `ENABLE_BINANCE=true`)
+2. **Coinbase Pro WebSocket** (if `ENABLE_COINBASE=true`)
+3. **Kraken WebSocket** (if `ENABLE_KRAKEN=true`)
+4. **CoinGecko REST API** (always enabled as final fallback)
+
+For detailed configuration options, see [Data Sources Configuration](docs/data-sources-config.md).
 
 ### Service Configuration
 
