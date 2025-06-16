@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy minimal requirements and install Python dependencies
+COPY deployment/docker/requirements-producer.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+
+# Set Python path
+ENV PYTHONPATH=/app/src
+
+# Expose health check port
+EXPOSE 8000
+
+# Run the producer
+CMD ["python", "src/pipeline/data_ingestion/crypto_data_producer.py"]

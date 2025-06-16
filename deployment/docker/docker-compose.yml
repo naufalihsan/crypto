@@ -1,0 +1,326 @@
+services:
+  # ===========================================
+  # Infrastructure Services
+  # ===========================================
+  
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-topics-init:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-topics-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./init-scripts/init-kafka-topics.sh:/init-kafka-topics.sh
+    command: ["/bin/bash", "/init-kafka-topics.sh"]
+    networks:
+      - crypto-pipeline
+    restart: "no"
+
+  # ===========================================
+  # Stream Processing Services
+  # ===========================================
+
+  flink-jobmanager:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.pyflink
+    image: pyflink-cluster:latest
+    hostname: flink-jobmanager
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.memory.flink.size: 1280m
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - LOG_LEVEL=INFO
+    depends_on:
+      kafka-topics-init:
+        condition: service_completed_successfully
+    volumes:
+      - flink-data:/opt/flink/data
+      - flink-lib:/opt/flink/lib
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["/opt/flink/bin/start-jobmanager-with-job.sh"]
+
+  flink-taskmanager:
+    image: pyflink-cluster:latest
+    hostname: flink-taskmanager
+    container_name: flink-taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    scale: 1
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.memory.flink.size: 1280m
+    volumes:
+      - flink-data:/opt/flink/data
+      - flink-lib:/opt/flink/lib
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://flink-jobmanager:8081/taskmanagers"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["taskmanager"]
+
+  # ===========================================
+  # Database Services
+  # ===========================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: crypto_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d crypto_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: crypto_analytics
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin
+      CLICKHOUSE_SECURE: "false"
+      CLICKHOUSE_COMPRESS: "true"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    container_name: clickhouse-init
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./init-scripts/init-clickhouse.sql:/docker-entrypoint-initdb.d/01-init-clickhouse.sql
+      - ./init-scripts/init-clickhouse.sh:/init-clickhouse.sh
+    networks:
+      - crypto-pipeline
+    restart: "no"
+    command: ["/bin/sh", "/init-clickhouse.sh"]
+
+  # ===========================================
+  # Application Services
+  # ===========================================
+
+  producer:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.producer
+    container_name: producer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      CRYPTO_SYMBOLS: BTCUSDT,ETHUSDT,DOGEUSDT,BNBUSDT,XRPUSDT
+      ENABLE_BINANCE: "true"
+      ENABLE_COINBASE: "true"
+      ENABLE_KRAKEN: "true"
+      LOG_LEVEL: INFO
+    depends_on:
+      kafka-topics-init:
+        condition: service_completed_successfully
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+  oltp-service:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.oltp
+    image: crypto-oltp-service:latest
+    container_name: oltp-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_CONSUMER_GROUP: oltp-service
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: crypto_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_MIN_POOL_SIZE: 5
+      POSTGRES_MAX_POOL_SIZE: 20
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-topics-init:
+        condition: service_completed_successfully
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  olap-service:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.olap
+    image: crypto-olap-service:latest
+    container_name: olap-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_CONSUMER_GROUP: olap-service
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto_analytics
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin
+      CLICKHOUSE_SECURE: "false"
+      CLICKHOUSE_COMPRESS: "true"
+      LOG_LEVEL: INFO
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+      kafka-topics-init:
+        condition: service_completed_successfully
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8002/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ===========================================
+  # Monitoring Services
+  # ===========================================
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: crypto-pipeline
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+
+networks:
+  crypto-pipeline:
+    driver: bridge
+
+volumes:
+  zookeeper-data:
+  kafka-data:
+  postgres-data:
+  clickhouse-data:
+  flink-data:
+  flink-lib:

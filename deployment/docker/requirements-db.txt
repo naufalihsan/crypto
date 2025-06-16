@@ -1,0 +1,20 @@
+# Core web framework
+aiohttp==3.9.1
+
+# Database connectivity
+asyncpg>=0.29.0
+
+# ClickHouse database client
+clickhouse-connect==0.6.23
+
+# Kafka client
+kafka-python==2.0.2
+
+# HTTP requests (for health checks)
+requests>=2.31.0
+
+# JSON schema validation
+jsonschema>=4.0.0
+
+# Date/time utilities
+python-dateutil>=2.8.0
