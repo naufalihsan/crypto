@@ -60,7 +60,13 @@ pre-commit: ## Run pre-commit hooks on all files
 docker-build: ## Build all Docker images
 	docker-compose -f deployment/docker/docker-compose.yml build
 
+docker-build-streamlit: ## Build only the Streamlit dashboard image
+	docker-compose -f deployment/docker/docker-compose.yml build streamlit-dashboard
+
 docker-up: ## Start all services with Docker Compose
+	docker-compose -f deployment/docker/docker-compose.yml up -d
+
+docker-up-with-dashboard: ## Start all services including Streamlit dashboard
 	docker-compose -f deployment/docker/docker-compose.yml up -d
 
 docker-down: ## Stop all services
@@ -68,6 +74,9 @@ docker-down: ## Stop all services
 
 docker-logs: ## Show logs from all services
 	docker-compose -f deployment/docker/docker-compose.yml logs -f
+
+docker-logs-streamlit: ## Show logs from Streamlit dashboard only
+	docker-compose -f deployment/docker/docker-compose.yml logs -f streamlit-dashboard
 
 docker-restart: docker-down docker-up ## Restart all services
 
@@ -147,4 +156,14 @@ benchmark: ## Run performance benchmarks
 	python tools/scripts/benchmark.py
 
 profile: ## Profile application performance
-	python tools/scripts/profile_app.py 
+	python tools/scripts/profile_app.py
+
+# Visualization targets
+start-dashboard: ## Start Streamlit dashboard locally
+	streamlit run src/pipeline/visualization/streamlit_app.py --server.port=8501
+
+dashboard-dev: ## Start Streamlit dashboard in development mode with auto-reload
+	streamlit run src/pipeline/visualization/streamlit_app.py --server.port=8501 --server.runOnSave=true
+
+test-dashboard: ## Test dashboard connectivity to services
+	python -c "import requests; print('OLTP Service:', requests.get('http://localhost:8001/health').status_code); print('OLAP Service:', requests.get('http://localhost:8002/health').status_code)" 
