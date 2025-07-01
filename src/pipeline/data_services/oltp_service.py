@@ -678,16 +678,63 @@ class OLTPService:
         """Get latest prices for symbols"""
         async with self.db_manager.get_connection() as conn:
             if symbols:
-                placeholders = ",".join(f"${i+1}" for i in range(len(symbols)))
+                # Filter empty strings and convert to uppercase
+                clean_symbols = [s.strip().upper() for s in symbols if s.strip()]
+                
+                logger.info(f"Original symbols: {symbols}")
+                logger.info(f"Clean symbols: {clean_symbols}")
+                
+                if not clean_symbols:
+                    # If no valid symbols, return empty list
+                    logger.warning("No valid symbols provided, returning empty list")
+                    return []
+                
+                # Validate symbols (basic validation)
+                valid_symbols = []
+                for symbol in clean_symbols:
+                    if symbol and len(symbol) >= 3 and symbol.isalnum():
+                        valid_symbols.append(symbol)
+                    else:
+                        logger.warning(f"Invalid symbol format: {symbol}")
+                
+                if not valid_symbols:
+                    logger.warning("No valid symbols after validation, returning empty list")
+                    return []
+                
+                logger.info(f"Valid symbols for query: {valid_symbols}")
+                
+                # Use IN clause with placeholders instead of ANY
+                placeholders = ','.join(f'${i+1}' for i in range(len(valid_symbols)))
                 query = f"""
                     SELECT DISTINCT ON (symbol) symbol, price, timestamp, volume, 
                            high_24h, low_24h, change_24h, source
                     FROM crypto_prices 
-                    WHERE symbol = ANY(${len(symbols)+1})
+                    WHERE symbol IN ({placeholders})
                     ORDER BY symbol, timestamp DESC
-                    LIMIT ${len(symbols)+2}
+                    LIMIT ${len(valid_symbols)+1}
                 """
-                rows = await conn.fetch(query, *symbols, symbols, limit)
+                
+                logger.info(f"Executing query: {query}")
+                logger.info(f"Query parameters: {valid_symbols + [limit]}")
+                
+                try:
+                    rows = await conn.fetch(query, *valid_symbols, limit)
+                    logger.info(f"Query returned {len(rows)} rows")
+                    
+                    # If no data found, check if table has any data at all
+                    if not rows:
+                        total_count = await conn.fetchval("SELECT COUNT(*) FROM crypto_prices")
+                        logger.info(f"Total records in crypto_prices table: {total_count}")
+                        if total_count == 0:
+                            logger.warning("crypto_prices table is empty - no data available")
+                        else:
+                            logger.warning(f"No data found for symbols {valid_symbols}")
+                    
+                except Exception as e:
+                    logger.error(f"Query execution failed: {e}")
+                    logger.error(f"Query: {query}")
+                    logger.error(f"Parameters: {valid_symbols + [limit]}")
+                    raise
             else:
                 query = """
                     SELECT DISTINCT ON (symbol) symbol, price, timestamp, volume, 
@@ -696,7 +743,20 @@ class OLTPService:
                     ORDER BY symbol, timestamp DESC
                     LIMIT $1
                 """
-                rows = await conn.fetch(query, limit)
+                logger.info("Executing query for all symbols")
+                try:
+                    rows = await conn.fetch(query, limit)
+                    logger.info(f"Query for all symbols returned {len(rows)} rows")
+                    
+                    # If no data found, check if table has any data at all
+                    if not rows:
+                        total_count = await conn.fetchval("SELECT COUNT(*) FROM crypto_prices")
+                        logger.info(f"Total records in crypto_prices table: {total_count}")
+                        if total_count == 0:
+                            logger.warning("crypto_prices table is empty - no data available")
+                except Exception as e:
+                    logger.error(f"Query execution failed for all symbols: {e}")
+                    raise
 
             return [dict(row) for row in rows]
 
@@ -860,12 +920,18 @@ class OLTPService:
     async def _latest_prices_handler(self, request):
         """Get latest prices"""
         try:
-            symbols = (
-                request.query.get("symbols", "").split(",")
-                if request.query.get("symbols")
-                else None
-            )
+            symbols_param = request.query.get("symbols", "").strip()
+            symbols = None
+            
+            if symbols_param:
+                # Split and filter out empty strings
+                symbols = [s.strip() for s in symbols_param.split(",") if s.strip()]
+                if not symbols:  # If all symbols were empty after filtering
+                    symbols = None
+            
             limit = int(request.query.get("limit", 100))
+            
+            logger.info(f"Handler received symbols param: '{symbols_param}', parsed symbols: {symbols}")
 
             prices = await self.get_latest_prices(symbols, limit)
             return self._json_response(

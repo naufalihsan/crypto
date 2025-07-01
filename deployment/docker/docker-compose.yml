@@ -294,6 +294,32 @@ services:
       retries: 3
       start_period: 40s
 
+  streamlit-dashboard:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.streamlit
+    image: crypto-streamlit-dashboard:latest
+    container_name: streamlit-dashboard
+    environment:
+      OLTP_SERVICE_URL: http://oltp-service:8001
+      OLAP_SERVICE_URL: http://olap-service:8002
+    depends_on:
+      oltp-service:
+        condition: service_healthy
+      olap-service:
+        condition: service_healthy
+    networks:
+      - crypto-pipeline
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   # ===========================================
   # Monitoring Services
   # ===========================================

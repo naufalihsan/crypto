@@ -111,18 +111,37 @@ class ClickHouseClient:
             logger.info("All required tables verified")
     
     def query(self, sql: str, parameters: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """Execute query and return results as list of dictionaries"""
+        """Execute SQL query and return results as list of dictionaries"""
         try:
             client = self._get_client()
-            result = client.query(sql, parameters=parameters or {})
-            client.close()
             
-            if result.result_rows:
-                columns = [col[0] for col in result.column_names]
-                return [dict(zip(columns, row)) for row in result.result_rows]
-            return []
+            # Execute query with parameters
+            if parameters:
+                result = client.query(sql, parameters=parameters)
+            else:
+                result = client.query(sql)
+            
+            # Extract column names - handle both tuple and string formats
+            columns = []
+            for col in result.column_names:
+                if isinstance(col, tuple):
+                    columns.append(col[0])
+                else:
+                    columns.append(str(col))
+            
+            # Create list of dictionaries with proper column names
+            data = []
+            for row in result.result_rows:
+                row_dict = dict(zip(columns, row))
+                data.append(row_dict)
+            
+            client.close()
+            return data
+            
         except Exception as e:
             logger.error(f"Query failed: {e}")
+            logger.error(f"SQL: {sql}")
+            logger.error(f"Parameters: {parameters}")
             raise
     
     def insert(self, table: str, data: List[Dict[str, Any]]):
@@ -181,7 +200,7 @@ class AnalyticsService:
     
     async def get_price_analytics(self, symbol: str, period_minutes: int = 60, hours: int = 24) -> List[Dict[str, Any]]:
         """Get price analytics for a symbol"""
-        query = """
+        query = '''
         WITH aggregated_data AS (
             SELECT 
                 symbol,
@@ -214,7 +233,7 @@ class AnalyticsService:
         FROM aggregated_data
         ORDER BY period_start DESC
         LIMIT 1000
-        """
+        '''
         
         return self.ch.query(query, {
             'symbol': symbol,
