@@ -121,14 +121,6 @@ class ClickHouseClient:
             else:
                 result = client.query(sql)
             
-            # Debug logging
-            logger.info(f"Raw result type: {type(result)}")
-            logger.info(f"Raw column names: {result.column_names}")
-            logger.info(f"Raw column names types: {[type(col) for col in result.column_names]}")
-            logger.info(f"Result rows count: {len(result.result_rows)}")
-            if result.result_rows:
-                logger.info(f"First row: {result.result_rows[0]}")
-            
             # Extract column names - handle both tuple and string formats
             columns = []
             for col in result.column_names:
@@ -137,20 +129,11 @@ class ClickHouseClient:
                 else:
                     columns.append(str(col))
             
-            logger.info(f"Processed columns: {columns}")
-            
             # Create list of dictionaries with proper column names
             data = []
             for row in result.result_rows:
                 row_dict = dict(zip(columns, row))
                 data.append(row_dict)
-            
-            # Debug: Show first result
-            if data:
-                logger.info(f"First result dict: {data[0]}")
-                logger.info(f"First result dict keys: {list(data[0].keys())}")
-                # Add print statement to see what's being returned
-                print(f"QUERY METHOD RETURNING: {data[0] if data else 'No data'}")
             
             client.close()
             return data
@@ -217,23 +200,6 @@ class AnalyticsService:
     
     async def get_price_analytics(self, symbol: str, period_minutes: int = 60, hours: int = 24) -> List[Dict[str, Any]]:
         """Get price analytics for a symbol"""
-        # TEMPORARY DEBUG: Return hardcoded data with full column names
-        return [{
-            "symbol": symbol,
-            "period_start": "2025-06-23T05:00:00",
-            "period_minutes": period_minutes,
-            "open_price": 101200.0,
-            "close_price": 101200.0,
-            "high_price": 101300.0,
-            "low_price": 101100.0,
-            "avg_price": 101200.0,
-            "total_volume": 1000000.0,
-            "price_change": 0.0,
-            "price_change_pct": 0.0
-        }]
-        
-        # Original query code (commented out for debugging)
-        """
         query = '''
         WITH aggregated_data AS (
             SELECT 
@@ -274,7 +240,6 @@ class AnalyticsService:
             'period_minutes': period_minutes,
             'hours': hours
         })
-        """
     
     async def get_market_trends(self, symbol: Optional[str] = None, hours: int = 24) -> List[Dict[str, Any]]:
         """Get market trends"""
